@@ -12,6 +12,22 @@ USERNAME="铅笔头科技"
 VERSION=${1:-$(date +%Y%m%d%H%M%S)}
 LATEST_TAG="latest"
 
+# 可选：是否跳过容器内前端构建（默认 false）。
+# 用法： ./build-push.sh 20250913 true  => 第二个参数为 true 时跳过。
+SKIP_WEB_BUILD=${2:-false}
+
+if [ "$SKIP_WEB_BUILD" = "true" ]; then
+    echo "🧱 跳过容器内前端构建，开始本地预构建 web/dist ..."
+    if command -v bun >/dev/null 2>&1; then
+        pushd web >/dev/null
+        DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$VERSION bun run build
+        popd >/dev/null
+    else
+        echo "❌ 未找到 bun，请先安装 bun 或不要使用跳过模式"
+        exit 1
+    fi
+fi
+
 echo "=================================================="
 echo "🚀 MincodeOpenApi 项目镜像构建和推送"
 echo "镜像仓库: ${REGISTRY}"
@@ -33,6 +49,7 @@ echo ""
 echo "📦 构建 MincodeOpenApi 应用镜像..."
 docker build \
     --platform linux/amd64 \
+    --build-arg SKIP_WEB_BUILD=${SKIP_WEB_BUILD} \
     -t "${REGISTRY}/mincode-openapi:${VERSION}" \
     -t "${REGISTRY}/mincode-openapi:${LATEST_TAG}" \
     --push \

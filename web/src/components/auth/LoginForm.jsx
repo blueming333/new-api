@@ -76,7 +76,11 @@ const LoginForm = () => {
   const [showTwoFA, setShowTwoFA] = useState(false);
 
   const logo = getLogo();
-  const systemName = getSystemName();
+  // 获取系统名称并在登录页对“new api”旧品牌名进行替换
+  let systemName = getSystemName();
+  if (!systemName || systemName.toLowerCase() === 'new api') {
+    systemName = 'AiCraft OpenApi';
+  }
 
   let affCode = new URLSearchParams(window.location.search).get('aff');
   if (affCode) {

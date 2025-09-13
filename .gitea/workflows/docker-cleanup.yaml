@@ -1,0 +1,351 @@
+name: New-API Docker 清理
+run-name: ${{ gitea.actor }} 触发了 New-API Docker 服务清理流程 🧹
+
+on:
+  push:
+    tags:
+      - 'docker-cleanup-*'    # 推送以 docker-cleanup- 开头的标签时触发
+      - 'stop-docker'         # 推送 stop-docker 标签时触发
+  workflow_dispatch:          # 手动触发
+    inputs:
+      cleanup_type:
+        description: '清理类型'
+        required: true
+        default: 'stop-only'
+        type: choice
+        options:
+          - 'stop-only'       # 仅停止容器
+          - 'cleanup-images'  # 停止容器并清理镜像
+          - 'full-cleanup'    # 完全清理（包括数据卷）
+      confirm_cleanup:
+        description: '确认执行清理操作（输入 YES 确认）'
+        required: true
+        default: 'NO'
+        type: string
+      backup_data:
+        description: '是否备份数据'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  APP_NAME: 'new-api'
+  APP_DIR: '/home/app/new-api'
+  BACKUP_DIR: '/home/app/backups/new-api'
+
+jobs:
+  docker-cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 🔍 验证清理权限
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.confirm_cleanup }}" != "YES" ]; then
+              echo "❌ 手动触发需要输入 YES 确认清理操作"
+              exit 1
+            fi
+            echo "✅ 手动触发已确认，清理类型: ${{ github.event.inputs.cleanup_type }}"
+            echo "CLEANUP_TYPE=${{ github.event.inputs.cleanup_type }}" >> $GITHUB_ENV
+            echo "BACKUP_DATA=${{ github.event.inputs.backup_data }}" >> $GITHUB_ENV
+          else
+            # 标签触发时的默认行为
+            TAG_NAME="${{ github.ref_name }}"
+            if [[ "$TAG_NAME" == *"full"* ]]; then
+              echo "CLEANUP_TYPE=full-cleanup" >> $GITHUB_ENV
+            elif [[ "$TAG_NAME" == *"images"* ]]; then
+              echo "CLEANUP_TYPE=cleanup-images" >> $GITHUB_ENV
+            else
+              echo "CLEANUP_TYPE=stop-only" >> $GITHUB_ENV
+            fi
+            echo "BACKUP_DATA=true" >> $GITHUB_ENV
+            echo "🏷️ 标签触发，清理类型: $CLEANUP_TYPE"
+          fi
+      
+      - name: 📦 创建清理脚本
+        run: |
+          cat > docker-cleanup.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          APP_NAME="${{ env.APP_NAME }}"
+          APP_DIR="${{ env.APP_DIR }}"
+          BACKUP_DIR="${{ env.BACKUP_DIR }}"
+          CLEANUP_TYPE="${{ env.CLEANUP_TYPE }}"
+          BACKUP_DATA="${{ env.BACKUP_DATA }}"
+          
+          echo "🧹 开始 New-API Docker 清理流程..."
+          echo "📋 清理配置:"
+          echo "  应用名称: $APP_NAME"
+          echo "  应用目录: $APP_DIR"
+          echo "  清理类型: $CLEANUP_TYPE"
+          echo "  备份数据: $BACKUP_DATA"
+          
+          # 检查 Docker 环境
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "❌ Docker 未安装或不可用"
+            exit 1
+          fi
+          
+          if ! docker compose version >/dev/null 2>&1; then
+            echo "❌ Docker Compose 未安装或不可用"
+            exit 1
+          fi
+          
+          echo "✅ Docker 环境检查完成"
+          
+          # 进入应用目录
+          if [ ! -d "$APP_DIR" ]; then
+            echo "⚠️ 应用目录不存在: $APP_DIR"
+            echo "可能服务未部署或已被清理"
+            exit 0
+          fi
+          
+          cd "$APP_DIR"
+          echo "📍 当前目录: $(pwd)"
+          
+          # 备份数据（如果需要）
+          if [ "$BACKUP_DATA" = "true" ] && [ "$CLEANUP_TYPE" != "stop-only" ]; then
+            echo "💾 开始数据备份..."
+            mkdir -p "$BACKUP_DIR"
+            
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            
+            # 备份数据库数据
+            if docker volume ls | grep -q "${APP_NAME}_mysql_data"; then
+              echo "📦 备份MySQL数据库数据..."
+              docker run --rm \
+                -v "${APP_NAME}_mysql_data":/data \
+                -v "$BACKUP_DIR":/backup \
+                alpine tar czf "/backup/mysql_data_${TIMESTAMP}.tar.gz" -C /data . 2>/dev/null || \
+                echo "⚠️ MySQL数据库数据备份失败或数据卷为空"
+            fi
+            
+            # 备份Redis数据
+            if docker volume ls | grep -q "${APP_NAME}_redis_data"; then
+              echo "📦 备份Redis数据..."
+              docker run --rm \
+                -v "${APP_NAME}_redis_data":/data \
+                -v "$BACKUP_DIR":/backup \
+                alpine tar czf "/backup/redis_data_${TIMESTAMP}.tar.gz" -C /data . 2>/dev/null || \
+                echo "⚠️ Redis数据备份失败或数据卷为空"
+            fi
+            
+            # 备份New-API数据
+            if docker volume ls | grep -q "${APP_NAME}_newapi_data"; then
+              echo "📦 备份New-API数据..."
+              docker run --rm \
+                -v "${APP_NAME}_newapi_data":/data \
+                -v "$BACKUP_DIR":/backup \
+                alpine tar czf "/backup/newapi_data_${TIMESTAMP}.tar.gz" -C /data . 2>/dev/null || \
+                echo "⚠️ New-API数据备份失败或数据卷为空"
+            fi
+            
+            # 备份日志文件
+            if docker volume ls | grep -q "${APP_NAME}_newapi_logs"; then
+              echo "📦 备份日志文件..."
+              docker run --rm \
+                -v "${APP_NAME}_newapi_logs":/data \
+                -v "$BACKUP_DIR":/backup \
+                alpine tar czf "/backup/newapi_logs_${TIMESTAMP}.tar.gz" -C /data . 2>/dev/null || \
+                echo "⚠️ 日志文件备份失败或数据卷为空"
+            fi
+            
+            # 备份配置文件
+            if [ -f "docker-compose.yml" ]; then
+              echo "📦 备份配置文件..."
+              cp docker-compose.yml "$BACKUP_DIR/docker-compose_${TIMESTAMP}.yml"
+            fi
+            
+            if [ -f ".env.docker" ]; then
+              cp .env.docker "$BACKUP_DIR/.env.docker_${TIMESTAMP}"
+            fi
+            
+            echo "✅ 数据备份完成，备份位置: $BACKUP_DIR"
+            ls -la "$BACKUP_DIR" | tail -10
+          fi
+          
+          # 显示当前状态
+          echo "📊 当前 Docker 状态:"
+          echo "🐳 运行中的容器:"
+          docker ps --filter "name=${APP_NAME}" || echo "无相关容器运行"
+          
+          echo "📦 相关数据卷:"
+          docker volume ls | grep "$APP_NAME" || echo "无相关数据卷"
+          
+          echo "🖼️ 相关镜像:"
+          docker images | grep -E "(newapi|$APP_NAME)" || echo "无相关镜像"
+          
+          # 停止服务
+          echo "🛑 停止 Docker 服务..."
+          if [ -f "docker-compose.yml" ]; then
+            docker compose down --remove-orphans || echo "⚠️ 停止服务时出现错误"
+          else
+            echo "⚠️ 未找到 docker-compose.yml 文件"
+            # 尝试手动停止容器
+            docker stop $(docker ps -q --filter "name=${APP_NAME}") 2>/dev/null || echo "无需停止的容器"
+          fi
+          
+          # 根据清理类型执行不同操作
+          case "$CLEANUP_TYPE" in
+            "stop-only")
+              echo "✅ 服务停止完成，容器和数据卷已保留"
+              ;;
+              
+            "cleanup-images")
+              echo "🗑️ 清理 Docker 镜像..."
+              
+              # 删除容器
+              docker rm $(docker ps -aq --filter "name=${APP_NAME}") 2>/dev/null || echo "无需删除的容器"
+              
+              # 删除应用相关镜像
+              docker rmi $(docker images -q --filter "reference=*newapi*") 2>/dev/null || echo "无需删除的镜像"
+              docker rmi $(docker images -q --filter "reference=*${APP_NAME}*") 2>/dev/null || echo "无需删除的镜像"
+              
+              # 清理悬挂镜像
+              docker image prune -f
+              
+              echo "✅ 镜像清理完成，数据卷已保留"
+              ;;
+              
+            "full-cleanup")
+              echo "🗑️ 执行完全清理..."
+              
+              # 删除容器
+              docker rm $(docker ps -aq --filter "name=${APP_NAME}") 2>/dev/null || echo "无需删除的容器"
+              
+              # 删除数据卷
+              docker volume rm $(docker volume ls -q | grep "$APP_NAME") 2>/dev/null || echo "无需删除的数据卷"
+              
+              # 删除镜像
+              docker rmi $(docker images -q --filter "reference=*newapi*") 2>/dev/null || echo "无需删除的镜像"
+              docker rmi $(docker images -q --filter "reference=*${APP_NAME}*") 2>/dev/null || echo "无需删除的镜像"
+              
+              # 删除网络
+              docker network rm $(docker network ls -q --filter "name=${APP_NAME}") 2>/dev/null || echo "无需删除的网络"
+              
+              # 清理系统
+              docker system prune -f
+              
+              echo "✅ 完全清理完成"
+              ;;
+              
+            *)
+              echo "❌ 未知的清理类型: $CLEANUP_TYPE"
+              exit 1
+              ;;
+          esac
+          
+          # 显示清理后状态
+          echo "📊 清理后 Docker 状态:"
+          echo "🐳 运行中的容器:"
+          docker ps --filter "name=${APP_NAME}" || echo "无相关容器"
+          
+          echo "📦 相关数据卷:"
+          docker volume ls | grep "$APP_NAME" || echo "无相关数据卷"
+          
+          echo "🖼️ 相关镜像:"
+          docker images | grep -E "(newapi|$APP_NAME)" || echo "无相关镜像"
+          
+          # 显示磁盘空间
+          echo "💾 磁盘空间使用:"
+          df -h /
+          
+          echo "🎉 Docker 清理流程完成！"
+          EOF
+          
+          chmod +x docker-cleanup.sh
+          echo "✅ 清理脚本创建完成"
+      
+      - name: 🚀 上传清理脚本
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ vars.DEPLOY_PORT || 22 }}
+          source: "docker-cleanup.sh"
+          target: "/tmp/"
+      
+      - name: 🧹 执行 Docker 清理
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ vars.DEPLOY_PORT || 22 }}
+          script: |
+            set -e
+            
+            # 设置环境变量
+            export APP_NAME="${{ env.APP_NAME }}"
+            export APP_DIR="${{ env.APP_DIR }}"
+            export BACKUP_DIR="${{ env.BACKUP_DIR }}"
+            export CLEANUP_TYPE="${{ env.CLEANUP_TYPE }}"
+            export BACKUP_DATA="${{ env.BACKUP_DATA }}"
+            
+            echo "🔧 清理配置:"
+            echo "  应用名称: $APP_NAME"
+            echo "  清理类型: $CLEANUP_TYPE"
+            echo "  备份数据: $BACKUP_DATA"
+            
+            # 执行清理脚本
+            chmod +x /tmp/docker-cleanup.sh
+            /tmp/docker-cleanup.sh
+            
+            # 清理临时脚本
+            rm -f /tmp/docker-cleanup.sh
+            
+            echo "✅ Docker 清理完成"
+      
+      - name: 📋 输出清理报告
+        run: |
+          echo "🧹 New-API Docker 清理完成！"
+          echo ""
+          echo "📊 清理信息:"
+          echo "  🖥️  服务器: ${{ vars.DEPLOY_HOST }}"
+          echo "  📦 应用名称: ${{ env.APP_NAME }}"
+          echo "  🗂️  应用目录: ${{ env.APP_DIR }}"
+          echo "  🧹 清理类型: ${{ env.CLEANUP_TYPE }}"
+          echo "  💾 数据备份: ${{ env.BACKUP_DATA }}"
+          echo ""
+          
+          case "${{ env.CLEANUP_TYPE }}" in
+            "stop-only")
+              echo "✅ 执行操作: 仅停止容器服务"
+              echo "💾 保留内容: 容器镜像、数据卷、配置文件"
+              echo "🔄 恢复方法: 重新运行部署脚本"
+              ;;
+            "cleanup-images")
+              echo "✅ 执行操作: 停止服务并清理镜像"
+              echo "💾 保留内容: 数据卷（MySQL数据、Redis数据、New-API数据、日志）"
+              echo "🔄 恢复方法: 重新部署应用（数据将保留）"
+              ;;
+            "full-cleanup")
+              echo "✅ 执行操作: 完全清理所有相关资源"
+              echo "💾 保留内容: 备份文件（如果启用备份）"
+              echo "🔄 恢复方法: 重新部署应用并恢复数据备份"
+              ;;
+          esac
+          
+          ;;
+          esac
+          
+          echo ""
+          echo "📁 备份位置: ${{ env.BACKUP_DIR }}"
+          echo ""
+          echo "🔧 有用命令:"
+          echo "  📊 查看 Docker 状态: docker ps -a"
+          echo "  📦 查看数据卷: docker volume ls"
+          echo "  🖼️  查看镜像: docker images"
+          echo "  💾 查看磁盘空间: df -h"
+          echo "  📁 查看备份: ls -la ${{ env.BACKUP_DIR }}"
+          echo ""
+            echo "💡 数据恢复提示:"
+            echo "  1. 重新部署New-API应用"
+            echo "  2. 停止新的数据库和Redis容器"
+            echo "  3. 解压备份数据到对应数据卷"
+            echo "  4. 重启服务"
+          fi

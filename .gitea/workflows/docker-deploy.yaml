@@ -1,0 +1,713 @@
+name: New-API Docker 部署
+run-name: ${{ gitea.actor }} 触发了 New-API Docker 容器化部署流程 �
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths-ignore:
+      - 'README.md'
+      - 'README.en.md'
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths-ignore:
+      - 'README.md'
+      - 'README.en.md'
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '部署环境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - 'production'
+          - 'staging'
+          - 'development'
+      force_rebuild:
+        description: '强制重新构建镜像'
+        required: false
+        default: false
+        type: boolean
+      deploy_mode:
+        description: '部署模式（rolling: 增量，clean: 全清理）'
+        required: false
+        default: 'rolling'
+        type: choice
+        options:
+          - 'rolling'
+          - 'clean'
+
+env:
+  GO_VERSION: '1.23'
+  BUN_VERSION: 'latest'
+  # 阿里云镜像仓库配置
+  REGISTRY: crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com
+  REGISTRY_NAMESPACE: blueming3
+  REGISTRY_USERNAME: 铅笔头科技
+  IMAGE_TAG: latest
+  
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 🐳 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: 📋 设置环境变量
+        run: |
+          # 根据分支设置环境
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            echo "DEPLOY_ENV=production" >> $GITHUB_ENV
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_ENV=development" >> $GITHUB_ENV
+          fi
+          
+          # 设置镜像标签 - 使用阿里云镜像仓库格式
+          COMMIT_SHA="${GITHUB_SHA::8}"
+          echo "COMMIT_TAG=$COMMIT_SHA" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+          
+          # 构建完整的镜像名称
+          echo "NEW_API_IMAGE=${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/new-api" >> $GITHUB_ENV
+          echo "MYSQL_IMAGE=${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/mysql" >> $GITHUB_ENV
+          echo "REDIS_IMAGE=${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/redis" >> $GITHUB_ENV
+          echo "ALPINE_IMAGE=${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/alpine" >> $GITHUB_ENV
+          
+          # 手动触发时使用指定环境
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "DEPLOY_ENV=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          fi
+
+          # 设置部署模式（默认 rolling）
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.deploy_mode }}" ]; then
+            DEPLOY_MODE="${{ github.event.inputs.deploy_mode }}"
+          else
+            DEPLOY_MODE="rolling"
+          fi
+          echo "DEPLOY_MODE=$DEPLOY_MODE" >> $GITHUB_ENV
+          
+          echo "✅ 部署环境: $DEPLOY_ENV"
+          echo "✅ 提交标签: $COMMIT_SHA"
+          echo "✅ 构建时间: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "✅ 部署模式: $DEPLOY_MODE"
+          echo "✅ New-API镜像: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/new-api"
+          echo "✅ MySQL镜像: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/mysql"
+          echo "✅ Redis镜像: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/redis"
+          echo "✅ Alpine镜像: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/alpine"
+      
+      - name: 📝 创建 Docker 环境配置
+        run: |
+          # 创建 .env.docker 文件
+          cat > .env.docker << EOF
+          # 构建信息
+          BUILD_DATE=${{ env.BUILD_DATE }}
+          GIT_COMMIT=${{ github.sha }}
+          GIT_BRANCH=${{ github.ref_name }}
+          
+          # 应用配置
+          NODE_ENV=${{ env.DEPLOY_ENV }}
+          DEPLOY_MODE=${{ env.DEPLOY_MODE }}
+          GO_VERSION=${{ env.GO_VERSION }}
+          BUN_VERSION=${{ env.BUN_VERSION }}
+          
+          # 数据库配置 - MySQL
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD || 'newapi_secure_password_2024' }}
+          MYSQL_DATABASE=new_api
+          MYSQL_USER=newapi
+          MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD || 'newapi_user_password_2024' }}
+          SQL_DSN=newapi:${{ secrets.MYSQL_PASSWORD || 'newapi_user_password_2024' }}@tcp(mysql:3306)/new_api?charset=utf8mb4&parseTime=True&loc=Local
+          
+          # Redis配置
+          REDIS_CONN_STRING=redis://redis:6379
+          
+          # New-API 应用配置
+          SESSION_SECRET=${{ secrets.SESSION_SECRET || 'newapi_session_secret_key_production_2024' }}
+          INITIAL_ROOT_TOKEN=${{ secrets.INITIAL_ROOT_TOKEN || 'sk-newapi-admin-token-2024' }}
+          
+          # 端口配置
+          NEW_API_PORT=${{ vars.NEW_API_PORT || '3000' }}
+          MYSQL_PORT=${{ vars.MYSQL_PORT || '3306' }}
+          REDIS_PORT=${{ vars.REDIS_PORT || '6379' }}
+          PORT=${{ vars.NEW_API_PORT || '3000' }}
+          
+          # 日志配置
+          ERROR_LOG_ENABLED=true
+          LOG_DIR=/app/logs
+          
+          # 其他配置
+          TZ=Asia/Shanghai
+          STREAMING_TIMEOUT=300
+          GENERATE_DEFAULT_TOKEN=true
+          
+          # 阿里云镜像仓库配置（用于部署时拉取镜像）
+          REGISTRY=${{ env.REGISTRY }}
+          REGISTRY_USERNAME=${{ env.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD=${{ secrets.REGISTRY_PASSWORD }}
+          EOF
+          
+          echo "✅ Docker 环境配置已创建"
+      
+      - name: 🔐 登录阿里云镜像仓库
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      
+      - name: 🏗️ 构建和准备 Docker 镜像
+        run: |
+          echo "🔨 开始构建 Docker 镜像..."
+          
+          # 拉取并推送基础镜像到阿里云仓库
+          echo "📦 准备基础镜像..."
+          
+          # MySQL 镜像
+          docker pull mysql:8.0
+          docker tag mysql:8.0 ${{ env.MYSQL_IMAGE }}:8.0
+          docker tag mysql:8.0 ${{ env.MYSQL_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # Redis 镜像
+          docker pull redis:7-alpine
+          docker tag redis:7-alpine ${{ env.REDIS_IMAGE }}:7-alpine
+          docker tag redis:7-alpine ${{ env.REDIS_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # Alpine 镜像（用于备份脚本）
+          docker pull alpine:latest
+          docker tag alpine:latest ${{ env.ALPINE_IMAGE }}:latest
+          docker tag alpine:latest ${{ env.ALPINE_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # 构建 New-API 镜像
+          echo "📦 构建 New-API 镜像..."
+          
+          # 设置版本号
+          echo "v$(date +%Y%m%d)-${GITHUB_SHA::8}" > VERSION
+          
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg GO_VERSION=${{ env.GO_VERSION }} \
+            --build-arg BUN_VERSION=${{ env.BUN_VERSION }} \
+            --build-arg BUILD_DATE="${{ env.BUILD_DATE }}" \
+            --build-arg GIT_COMMIT="${{ github.sha }}" \
+            --cache-to type=inline \
+            --tag ${{ env.NEW_API_IMAGE }}:${{ env.COMMIT_TAG }} \
+            --tag ${{ env.NEW_API_IMAGE }}:${{ env.IMAGE_TAG }} \
+            --file Dockerfile \
+            --push \
+            .
+          
+          echo "✅ Docker 镜像构建完成"
+          echo "📦 构建的镜像:"
+          docker images | grep ${{ env.REGISTRY_NAMESPACE }}
+      
+      - name: 🧪 测试 Docker 镜像
+        run: |
+          echo "🧪 测试 Docker 镜像..."
+          
+          # 创建测试网络
+          docker network create newapi_test_network || true
+          
+          # 启动测试MySQL
+          docker run -d \
+            --name test_mysql \
+            --network newapi_test_network \
+            -e MYSQL_ROOT_PASSWORD=test_password \
+            -e MYSQL_DATABASE=new_api \
+            -e MYSQL_USER=newapi \
+            -e MYSQL_PASSWORD=test_password \
+            ${{ env.MYSQL_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # 启动测试Redis
+          docker run -d \
+            --name test_redis \
+            --network newapi_test_network \
+            ${{ env.REDIS_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # 等待数据库就绪
+          for i in {1..60}; do
+            if docker exec test_mysql mysqladmin ping -h localhost -u root -ptest_password --silent >/dev/null 2>&1; then
+              echo "✅ MySQL数据库就绪"
+              break
+            fi
+            echo "⏳ 等待MySQL数据库就绪... ($i/60)"
+            sleep 2
+          done
+          
+          # 等待Redis就绪
+          for i in {1..30}; do
+            if docker exec test_redis redis-cli ping >/dev/null 2>&1; then
+              echo "✅ Redis就绪"
+              break
+            fi
+            echo "⏳ 等待Redis就绪... ($i/30)"
+            sleep 1
+          done
+          
+          # 拉取New-API镜像（构建时已 --push）
+          docker pull ${{ env.NEW_API_IMAGE }}:${{ env.COMMIT_TAG }}
+          
+          # 测试New-API镜像
+          docker run -d \
+            --name test_newapi \
+            --network newapi_test_network \
+            -e SQL_DSN="newapi:test_password@tcp(test_mysql:3306)/new_api?charset=utf8mb4&parseTime=True&loc=Local" \
+            -e REDIS_CONN_STRING="redis://test_redis:6379" \
+            -e SESSION_SECRET="test_secret" \
+            -e INITIAL_ROOT_TOKEN="sk-test-token" \
+            -e ERROR_LOG_ENABLED=true \
+            ${{ env.NEW_API_IMAGE }}:${{ env.COMMIT_TAG }}
+          
+          # 等待New-API启动
+          for i in {1..90}; do
+            if docker exec test_newapi wget -q -O - http://localhost:3000/api/status >/dev/null 2>&1; then
+              echo "✅ New-API健康检查通过"
+              break
+            fi
+            if [ $i -eq 90 ]; then
+              echo "❌ New-API健康检查超时"
+              docker logs test_newapi
+              exit 1
+            fi
+            echo "⏳ 等待New-API服务启动... ($i/90)"
+            sleep 2
+          done
+          
+          # 健康检查
+          if docker exec test_newapi wget -q -O - http://localhost:3000/api/status; then
+            echo "✅ New-API健康检查通过"
+          else
+            echo "❌ New-API健康检查失败"
+            docker logs test_newapi
+            exit 1
+          fi
+          
+          # 清理测试容器
+          docker stop test_newapi test_mysql test_redis || true
+          docker rm test_newapi test_mysql test_redis || true
+          docker network rm newapi_test_network || true
+              docker logs test_backend
+          echo "✅ Docker 镜像测试完成"
+      
+      - name: 📤 推送镜像到阿里云仓库
+        run: |
+          echo "📤 推送镜像到阿里云镜像仓库..."
+          
+          # 推送 Alpine 镜像
+          echo "📦 推送 Alpine 镜像..."
+          docker push ${{ env.ALPINE_IMAGE }}:latest
+          docker push ${{ env.ALPINE_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # 推送 MySQL 镜像
+          echo "📦 推送 MySQL 镜像..."
+          docker push ${{ env.MYSQL_IMAGE }}:8.0
+          docker push ${{ env.MYSQL_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          # 推送 Redis 镜像
+          echo "📦 推送 Redis 镜像..."
+          docker push ${{ env.REDIS_IMAGE }}:7-alpine
+          docker push ${{ env.REDIS_IMAGE }}:${{ env.IMAGE_TAG }}
+          
+          echo "✅ 镜像推送完成"
+          echo "📦 推送的镜像:"
+          echo "  • ${{ env.ALPINE_IMAGE }}:latest"
+          echo "  • ${{ env.ALPINE_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  • ${{ env.MYSQL_IMAGE }}:8.0"
+          echo "  • ${{ env.MYSQL_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  • ${{ env.REDIS_IMAGE }}:7-alpine"
+          echo "  • ${{ env.REDIS_IMAGE }}:${{ env.IMAGE_TAG }}"
+      
+      - name: 📦 准备部署文件
+        run: |
+          echo "📁 准备部署文件..."
+          mkdir -p .deploy
+          
+          # 复制 Docker 相关文件
+          cp docker-compose.yml .deploy/
+          cp .env.docker .deploy/
+          cp docker-deploy.sh .deploy/
+          
+          # 创建生产环境的 docker-compose 文件
+          cat > .deploy/docker-compose.prod.yml << EOF
+          # 生产环境 Docker Compose 配置 - New-API
+          
+          services:
+            # MySQL 数据库服务
+            mysql:
+              image: ${{ env.MYSQL_IMAGE }}:${{ env.IMAGE_TAG }}
+              container_name: newapi_mysql
+              restart: unless-stopped
+              environment:
+                MYSQL_ROOT_PASSWORD: \${MYSQL_ROOT_PASSWORD}
+                MYSQL_DATABASE: \${MYSQL_DATABASE:-new_api}
+                MYSQL_USER: \${MYSQL_USER:-newapi}
+                MYSQL_PASSWORD: \${MYSQL_PASSWORD}
+              ports:
+                - "\${MYSQL_PORT:-3306}:3306"
+              volumes:
+                - mysql_data:/var/lib/mysql
+              networks:
+                - newapi_network
+              healthcheck:
+                test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p\${MYSQL_ROOT_PASSWORD}"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+          
+            # Redis 缓存服务
+            redis:
+              image: ${{ env.REDIS_IMAGE }}:${{ env.IMAGE_TAG }}
+              container_name: newapi_redis
+              restart: unless-stopped
+              ports:
+                - "\${REDIS_PORT:-6379}:6379"
+              volumes:
+                - redis_data:/data
+              networks:
+                - newapi_network
+              healthcheck:
+                test: ["CMD", "redis-cli", "ping"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+          
+            # New-API 主服务
+            new-api:
+              image: ${{ env.NEW_API_IMAGE }}:${{ env.IMAGE_TAG }}
+              container_name: newapi_main
+              restart: unless-stopped
+              ports:
+                - "\${NEW_API_PORT:-3000}:3000"
+              environment:
+                SQL_DSN: \${SQL_DSN}
+                REDIS_CONN_STRING: \${REDIS_CONN_STRING}
+                SESSION_SECRET: \${SESSION_SECRET}
+                INITIAL_ROOT_TOKEN: \${INITIAL_ROOT_TOKEN}
+                ERROR_LOG_ENABLED: \${ERROR_LOG_ENABLED:-true}
+                TZ: \${TZ:-Asia/Shanghai}
+                STREAMING_TIMEOUT: \${STREAMING_TIMEOUT:-300}
+                GENERATE_DEFAULT_TOKEN: \${GENERATE_DEFAULT_TOKEN:-true}
+              volumes:
+                - newapi_data:/data
+                - newapi_logs:\${LOG_DIR:-/app/logs}
+              depends_on:
+                mysql:
+                  condition: service_healthy
+                redis:
+                  condition: service_healthy
+              networks:
+                - newapi_network
+              healthcheck:
+                test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' | awk -F: '{print $$2}'"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+          
+          # 数据卷
+          volumes:
+            mysql_data:
+              driver: local
+            newapi_data:
+              driver: local
+            newapi_logs:
+              driver: local
+            redis_data:
+              driver: local
+          
+          # 网络
+          networks:
+            newapi_network:
+              driver: bridge
+          EOF
+          
+          # 创建部署脚本
+          cat > .deploy/docker-deploy-remote.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          APP_NAME="new-api"
+          APP_DIR="/home/app/$APP_NAME"
+          
+          echo "🚀 开始 New-API Docker 部署流程..."
+          
+          # 检查 Docker 和 Docker Compose
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "❌ Docker 未安装，开始安装..."
+            curl -fsSL https://get.docker.com | sh
+            sudo usermod -aG docker $USER
+            echo "✅ Docker 安装完成，请重新登录以生效"
+            exit 1
+          fi
+          
+          if ! docker compose version >/dev/null 2>&1; then
+            echo "❌ Docker Compose 未安装或版本过低"
+            echo "请安装 Docker Compose V2"
+            exit 1
+          fi
+          
+          echo "✅ Docker 环境检查完成"
+          echo "Docker 版本: $(docker --version)"
+          echo "Docker Compose 版本: $(docker compose version)"
+          
+          # 运行环境配置脚本
+          if [ -f "docker-deploy.sh" ]; then
+            echo "🔧 运行环境配置..."
+            chmod +x docker-deploy.sh
+            COMPOSE_FILE=$(./docker-deploy.sh | grep "RECOMMENDED_COMPOSE_FILE=" | cut -d'=' -f2)
+            if [ -z "$COMPOSE_FILE" ]; then
+              COMPOSE_FILE="docker-compose.prod.yml"
+            fi
+          else
+            COMPOSE_FILE="docker-compose.prod.yml"
+          fi
+          
+          echo "📋 使用配置文件: $COMPOSE_FILE"
+          
+          # 停止旧服务（按部署模式执行）
+          echo "🛑 停止旧服务..."
+          cd "$APP_DIR" || { echo "❌ 应用目录不存在: $APP_DIR"; exit 1; }
+
+          DEPLOY_MODE="${DEPLOY_MODE:-rolling}"
+          SERVICES="${SERVICES:-backend frontend}"
+
+          if [ "$DEPLOY_MODE" = "clean" ]; then
+            echo "🛑 停止旧服务并彻底清理..."
+            docker compose --env-file .env.docker -f "$COMPOSE_FILE" down --remove-orphans || echo "⚠️ 没有运行中的服务"
+
+            # 强制删除所有相关容器（如果有残留）
+            echo "🧹 清理残留容器..."
+            docker rm -f newapi_mysql newapi_main newapi_redis 2>/dev/null || echo "⚠️ 没有残留容器"
+
+            # 清理网络
+            echo "🌐 清理 Docker 网络..."
+            docker network ls --format "{{.Name}}" | grep newapi | xargs -r docker network rm || echo "⚠️ 没有相关网络需要清理"
+          else
+            echo "🔁 增量部署模式（rolling），跳过全清理"
+          fi
+
+          echo "✅ 服务清理阶段完成"
+          
+          # 调试：显示环境变量
+          echo "🔍 调试信息 - 检查环境变量..."
+          echo "当前目录: $(pwd)"
+          echo "环境配置文件内容:"
+          cat .env.docker
+          echo ""
+          echo "部署模式: ${DEPLOY_MODE}"
+          echo "目标服务: ${SERVICES}"
+          echo "Docker Compose 配置验证:"
+          docker compose --env-file .env.docker -f "$COMPOSE_FILE" config --quiet && echo "✅ 配置文件有效" || echo "❌ 配置文件有错误"
+          
+          # 拉取最新镜像
+          echo "📥 拉取最新镜像..."
+          docker compose --env-file .env.docker -f "$COMPOSE_FILE" pull || {
+            echo "❌ 拉取镜像失败"
+            exit 1
+          }
+          
+          # 清理旧镜像（仅在 clean 模式）
+          if [ "$DEPLOY_MODE" = "clean" ]; then
+            echo "🧹 清理旧镜像..."
+            docker image prune -f
+          else
+            echo "🧹 跳过镜像清理（rolling 模式）"
+          fi
+          
+          # 启动新服务（按部署模式）
+          echo "🚀 启动新服务..."
+          if [ "$DEPLOY_MODE" = "clean" ]; then
+            docker compose --env-file .env.docker -f "$COMPOSE_FILE" up -d || {
+              echo "❌ 启动服务失败，显示详细日志..."
+              docker compose --env-file .env.docker -f "$COMPOSE_FILE" logs
+              exit 1
+            }
+          else
+            docker compose --env-file .env.docker -f "$COMPOSE_FILE" up -d --no-deps $SERVICES || {
+              echo "❌ 启动服务失败，显示详细日志..."
+              docker compose --env-file .env.docker -f "$COMPOSE_FILE" logs
+              exit 1
+            }
+          fi
+          
+          # 健康检查
+          echo "🏥 进行健康检查..."
+          sleep 30
+          
+          # 检查服务状态
+          COMPOSE_CMD="docker compose --env-file .env.docker -f $COMPOSE_FILE"
+          
+          if $COMPOSE_CMD ps | grep -q "Up"; then
+            echo "✅ 服务启动成功"
+            $COMPOSE_CMD ps
+          else
+            echo "❌ 服务启动失败"
+            $COMPOSE_CMD logs
+            exit 1
+          fi
+          
+          # 测试健康端点
+          NEW_API_PORT="${NEW_API_PORT:-3000}"
+          
+          for i in {1..30}; do
+            if curl -f "http://localhost:$NEW_API_PORT/api/status" >/dev/null 2>&1; then
+              echo "✅ New-API 健康检查通过"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ New-API 健康检查超时"
+              echo "🔍 诊断信息:"
+              echo "容器状态:"
+              $COMPOSE_CMD ps
+              echo ""
+              echo "New-API容器日志:"
+              $COMPOSE_CMD logs backend
+              echo ""
+              echo "数据库容器日志:"
+              $COMPOSE_CMD logs postgres
+              echo ""
+              echo "环境变量检查:"
+              docker exec hospital_backend env | grep -E "(DATABASE_URL|POSTGRES_|JWT_)" || echo "无法获取环境变量"
+              exit 1
+            fi
+            echo "⏳ 等待后端服务启动... ($i/30)"
+            sleep 2
+          done
+          
+          # 验证数据库初始化
+          echo "🗄️ 验证数据库初始化和种子数据..."
+          for i in {1..10}; do
+            if curl -X POST "http://localhost:$BACKEND_PORT/api/auth/login" \
+                 -H "Content-Type: application/json" \
+                 -d '{"email":"admin@hospital.com","password":"admin123"}' \
+                 --silent --fail >/dev/null 2>&1; then
+              echo "✅ 数据库种子数据初始化验证成功"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "❌ 数据库种子数据初始化验证失败"
+              echo "🔍 尝试手动测试登录接口:"
+              curl -X POST "http://localhost:$BACKEND_PORT/api/auth/login" \
+                   -H "Content-Type: application/json" \
+                   -d '{"email":"admin@hospital.com","password":"admin123"}' || echo "登录测试失败"
+              echo ""
+              echo "后端容器日志:"
+              $COMPOSE_CMD logs backend --tail=50
+              echo "⚠️  警告：数据库种子数据可能未正确初始化，但继续部署"
+            fi
+            echo "⏳ 等待数据库种子数据初始化... ($i/10)"
+            sleep 3
+          done
+          
+          for i in {1..30}; do
+            if curl -f "http://localhost:$FRONTEND_PORT" >/dev/null 2>&1; then
+              echo "✅ 前端健康检查通过"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ 前端健康检查超时"
+              $COMPOSE_CMD logs frontend
+              exit 1
+            fi
+            echo "⏳ 等待前端服务启动... ($i/30)"
+            sleep 2
+          done
+          
+          echo "🎉 Docker 部署完成！"
+          echo "📊 服务状态:"
+          $COMPOSE_CMD ps
+          echo "📈 资源使用:"
+          docker stats --no-stream
+          EOF
+          
+          chmod +x .deploy/docker-deploy-remote.sh
+          
+          echo "✅ 部署文件准备完成"
+          ls -la .deploy/
+      
+      - name: 🚀 部署到服务器
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ vars.DEPLOY_PORT || 22 }}
+          source: ".deploy/*"
+          target: "/home/app/new-api"
+          strip_components: 1
+          rm: true
+      
+      - name: 🔧 执行 Docker 部署
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ vars.DEPLOY_PORT || 22 }}
+          script: |
+            set -e
+            cd /home/app/new-api
+            
+            echo "📍 当前目录: $(pwd)"
+            echo "📁 目录内容:"
+            ls -la
+            
+            # 设置环境变量
+            export BACKEND_PORT="${{ vars.BACKEND_PORT || '3000' }}"
+            export FRONTEND_PORT="${{ vars.FRONTEND_PORT || '8080' }}"
+            export POSTGRES_PORT="${{ vars.POSTGRES_PORT || '5432' }}"
+            export DEPLOY_MODE="${{ github.event.inputs.deploy_mode || env.DEPLOY_MODE || 'rolling' }}"
+            
+            echo "🔧 环境配置:"
+            echo "  后端端口: $BACKEND_PORT"
+            echo "  前端端口: $FRONTEND_PORT"
+            echo "  数据库端口: $POSTGRES_PORT"
+            echo "  部署模式: $DEPLOY_MODE"
+            
+            echo "🚀 执行 Docker 部署..."
+            chmod +x docker-deploy-remote.sh
+            ./docker-deploy-remote.sh
+            
+            echo "✅ Docker 部署完成"
+      
+      - name: 📋 输出部署信息
+        run: |
+          NEW_API_PORT="${{ vars.NEW_API_PORT || '3000' }}"
+          DEPLOY_HOST="${{ vars.DEPLOY_HOST }}"
+          
+          echo "🎉 New-API Docker 部署完成！"
+          echo ""
+          echo "⚠️  重要提示: 本次为生产环境部署"
+          echo "   • 请确保已正确配置密钥和环境变量"
+          echo ""
+          echo "📊 部署信息:"
+          echo "  🖥️  服务器: ${DEPLOY_HOST}"
+          echo "  🐳 部署方式: Docker Compose"
+          echo "  🔗 New-API服务: http://${DEPLOY_HOST}:${NEW_API_PORT}"
+          echo "  � 健康检查: http://${DEPLOY_HOST}:${NEW_API_PORT}/api/status"
+          echo "  �️  数据库: MySQL 8.0"
+          echo "  � 缓存: Redis 7"
+          echo ""
+          echo "🔧 管理命令:"
+          echo "  📊 查看状态: docker compose ps"
+          echo "  📝 查看日志: docker compose logs [service]"
+          echo "  🔄 重启服务: docker compose restart [service]"
+          echo "  🛑 停止服务: docker compose down"
+          echo "  🧹 清理环境: docker compose down --remove-orphans"
+          echo ""
+          echo "📦 容器镜像 (阿里云镜像仓库):"
+          echo "  � New-API: ${{ env.NEW_API_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  🗄️  MySQL: ${{ env.MYSQL_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  � Redis: ${{ env.REDIS_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  🔧 工具: ${{ env.ALPINE_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo ""
+          echo "🔧 阿里云镜像仓库:"
+          echo "  • 镜像仓库: ${{ env.REGISTRY }}"
+          echo "  • 命名空间: ${{ env.REGISTRY_NAMESPACE }}"
+          echo "  • 包含: MySQL 8.0、Redis 7-alpine、Alpine、New-API应用"

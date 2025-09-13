@@ -34,7 +34,7 @@ echo "🔐 生成安全配置..."
 
 # 检查openssl是否可用
 if command -v openssl &> /dev/null; then
-    SESSION_SECRET="newapi-session-$(openssl rand -base64 32 | tr -d '\n')"
+    SESSION_SECRET="newapi-session-$(openssl rand -base64 32 | tr -d '\n' | tr '/' '_' | tr '+' '-')"
     ADMIN_TOKEN="sk-$(openssl rand -hex 20)"
 else
     # 如果没有openssl，使用date和随机数
@@ -42,9 +42,9 @@ else
     ADMIN_TOKEN="sk-$(date +%s)$(shuf -i 100000-999999 -n 1)"
 fi
 
-# 更新配置文件
-sed -i "s/SESSION_SECRET=your-production-session-secret-key-change-this/SESSION_SECRET=${SESSION_SECRET}/" docker.env
-sed -i "s/INITIAL_ROOT_TOKEN=sk-your-initial-admin-token-change-this/INITIAL_ROOT_TOKEN=${ADMIN_TOKEN}/" docker.env
+# 更新配置文件 - 使用不同的分隔符避免特殊字符冲突
+sed -i "s|SESSION_SECRET=your-production-session-secret-key-change-this|SESSION_SECRET=${SESSION_SECRET}|" docker.env
+sed -i "s|INITIAL_ROOT_TOKEN=sk-your-initial-admin-token-change-this|INITIAL_ROOT_TOKEN=${ADMIN_TOKEN}|" docker.env
 
 echo "✅ 已生成安全密钥"
 
@@ -61,14 +61,14 @@ echo "🔧 可选配置（按回车使用默认值）:"
 # 询问镜像版本
 read -p "镜像版本 (默认: latest): " VERSION
 if [ -n "$VERSION" ]; then
-    sed -i "s/TAG=latest/TAG=${VERSION}/" docker.env
+    sed -i "s|TAG=latest|TAG=${VERSION}|" docker.env
     echo "✅ 设置镜像版本: $VERSION"
 fi
 
 # 询问端口
 read -p "服务端口 (默认: 8999): " PORT
 if [ -n "$PORT" ]; then
-    sed -i "s/NEW_API_PORT=8999/NEW_API_PORT=${PORT}/" docker.env
+    sed -i "s|NEW_API_PORT=8999|NEW_API_PORT=${PORT}|" docker.env
     echo "✅ 设置服务端口: $PORT"
 fi
 
@@ -79,14 +79,16 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     read -s -p "请输入新的MySQL密码: " NEW_DB_PASSWORD
     echo ""
     if [ -n "$NEW_DB_PASSWORD" ]; then
-        # 更新配置文件中的密码
-        sed -i "s/man@2025/${NEW_DB_PASSWORD}/g" docker.env
+        # 转义特殊字符并更新配置文件中的密码
+        ESCAPED_OLD_PASSWORD="man@2025"
+        ESCAPED_NEW_PASSWORD=$(echo "$NEW_DB_PASSWORD" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        sed -i "s|${ESCAPED_OLD_PASSWORD}|${NEW_DB_PASSWORD}|g" docker.env
         echo "✅ 已更新数据库密码"
         echo ""
         echo "⚠️  重要提醒："
         echo "   请同时修改 docker-compose.yml 中的 MYSQL_ROOT_PASSWORD"
         echo "   修改命令："
-        echo "   sed -i 's/MYSQL_ROOT_PASSWORD: 123456/MYSQL_ROOT_PASSWORD: ${NEW_DB_PASSWORD}/' docker-compose.yml"
+        echo "   sed -i 's|MYSQL_ROOT_PASSWORD: 123456|MYSQL_ROOT_PASSWORD: ${NEW_DB_PASSWORD}|' docker-compose.yml"
     fi
 fi
 

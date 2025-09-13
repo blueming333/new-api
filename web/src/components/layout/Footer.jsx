@@ -198,11 +198,10 @@ const FooterBar = () => {
               rel='noopener noreferrer'
               className='!text-semi-color-primary font-medium'
             >
-              New API
+              AiCraft API
             </a>
             <span className='!text-semi-color-text-1'> & </span>
             <a
-              href='https://github.com/songquanpeng/one-api'
               target='_blank'
               rel='noopener noreferrer'
               className='!text-semi-color-primary font-medium'

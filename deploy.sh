@@ -105,13 +105,23 @@ if [ "$DEPLOY_MODE" = "standalone" ]; then
     echo "✅ 单机部署完成"
     
 else
-    # 完整部署模式 - 使用docker-compose
+        # 完整部署模式 - 使用docker-compose
     echo "🚀 完整部署模式：使用docker-compose部署"
     
     # 检查docker-compose文件
     if [ ! -f docker-compose.yml ]; then
         echo "错误: docker-compose.yml 文件不存在"
         exit 1
+    fi
+    
+    # 更新docker-compose.yml中的镜像版本
+    if [ "$USE_VERSION" != "latest" ]; then
+        echo "📝 更新docker-compose.yml中的镜像版本为: ${NEW_API_IMAGE}"
+        # 备份原文件
+        cp docker-compose.yml docker-compose.yml.backup
+        # 更新镜像版本
+        sed -i "s|image: calciumion/new-api:.*|image: ${NEW_API_IMAGE}|g" docker-compose.yml
+        sed -i "s|image: .*new-api:.*|image: ${NEW_API_IMAGE}|g" docker-compose.yml
     fi
     
     # 拉取镜像

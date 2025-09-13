@@ -10,7 +10,8 @@ echo "=================================================="
 
 # 生成安全密钥的函数
 generate_key() {
-    openssl rand -base64 32 | tr '/' '_' | tr '+' '-' | head -c 32
+    # 生成只包含字母和数字的安全密钥，避免特殊字符导致的shell语法问题
+    openssl rand -hex 16
 }
 
 # 检查Docker是否运行
@@ -83,16 +84,16 @@ LOGS_DIR=./logs
 TZ=Asia/Shanghai
 
 # ===== 数据库配置 =====
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-MYSQL_DATABASE=${MYSQL_DATABASE}
-SQL_DSN=root:${MYSQL_ROOT_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}
+MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD}"
+MYSQL_DATABASE="${MYSQL_DATABASE}"
+SQL_DSN="root:${MYSQL_ROOT_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}"
 
 # ===== Redis 配置 =====
-REDIS_CONN_STRING=redis://redis:6379/0
+REDIS_CONN_STRING="redis://redis:6379/0"
 
 # ===== New-API 应用配置 =====
-SESSION_SECRET=${SESSION_SECRET}
-INITIAL_ROOT_TOKEN=${INITIAL_ROOT_TOKEN}
+SESSION_SECRET="${SESSION_SECRET}"
+INITIAL_ROOT_TOKEN="${INITIAL_ROOT_TOKEN}"
 ERROR_LOG_ENABLED=true
 STREAMING_TIMEOUT=300
 GENERATE_DEFAULT_TOKEN=true

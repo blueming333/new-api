@@ -12,11 +12,20 @@ USERNAME="铅笔头科技"
 VERSION=${1:-$(date +%Y%m%d%H%M%S)}
 LATEST_TAG="latest"
 
-# 可选：是否跳过容器内前端构建（默认 false）。
-# 用法： ./build-push.sh 20250913 true  => 第二个参数为 true 时跳过。
+# 第二个参数：是否跳过容器内前端构建（默认 false）。
+# 用法： ./build-push.sh 20250913 true
 SKIP_WEB_BUILD=${2:-false}
 
-if [ "$SKIP_WEB_BUILD" = "true" ]; then
+# 第三个参数：是否仅构建后端（不包含 bun 阶段），需要已有 web/dist
+# 用法： ./build-push.sh 20250913 true backend-only  或  ./build-push.sh 20250913 false backend-only
+BACKEND_ONLY=${3:-false}
+
+# 基础镜像版本（可通过环境变量覆盖）
+BUN_IMAGE=${BUN_IMAGE:-oven/bun:latest}
+GO_IMAGE=${GO_IMAGE:-golang:1.22-alpine}
+ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.19}
+
+if [ "$SKIP_WEB_BUILD" = "true" ] && [ "$BACKEND_ONLY" != "backend-only" ]; then
     echo "🧱 跳过容器内前端构建，开始本地预构建 web/dist ..."
     if command -v bun >/dev/null 2>&1; then
         pushd web >/dev/null
@@ -47,13 +56,46 @@ docker login --username="${USERNAME}" "${REGISTRY%%/*}"
 # 1. 构建 MincodeOpenApi 应用镜像
 echo ""
 echo "📦 构建 MincodeOpenApi 应用镜像..."
-docker build \
-    --platform linux/amd64 \
-    --build-arg SKIP_WEB_BUILD=${SKIP_WEB_BUILD} \
-    -t "${REGISTRY}/mincode-openapi:${VERSION}" \
-    -t "${REGISTRY}/mincode-openapi:${LATEST_TAG}" \
-    --push \
-    .
+
+DOCKERFILE="Dockerfile"
+if [ "$BACKEND_ONLY" = "backend-only" ]; then
+    DOCKERFILE="Dockerfile.backend-only"
+    echo "🧩 使用后端精简构建: $DOCKERFILE (需已有 web/dist)"
+fi
+
+# 预拉取镜像并重试（backend-only 模式不需要 bun 镜像）
+echo "🛠 预拉取基础镜像 (带最多 5 次重试)..."
+IMAGES_TO_PULL="${GO_IMAGE} ${ALPINE_IMAGE}"
+if [ "$BACKEND_ONLY" != "backend-only" ]; then
+    IMAGES_TO_PULL="${BUN_IMAGE} ${IMAGES_TO_PULL}"
+fi
+for img in $IMAGES_TO_PULL; do
+    attempt=1
+    until docker pull "$img" >/dev/null 2>&1; do
+        if [ $attempt -ge 5 ]; then
+            echo "❌ 拉取镜像失败: $img"
+            exit 1
+        fi
+        echo "⚠️ 拉取失败: $img (第${attempt}次)，3秒后重试..."
+        attempt=$((attempt+1))
+        sleep 3
+    done
+    echo "✅ 已拉取: $img"
+done
+
+BUILD_ARGS=(
+    --platform linux/amd64
+    -t "${REGISTRY}/mincode-openapi:${VERSION}"
+    -t "${REGISTRY}/mincode-openapi:${LATEST_TAG}"
+    -f "$DOCKERFILE"
+    --push
+)
+if [ "$BACKEND_ONLY" != "backend-only" ]; then
+    BUILD_ARGS+=(--build-arg SKIP_WEB_BUILD=${SKIP_WEB_BUILD} --build-arg BUN_IMAGE=${BUN_IMAGE})
+fi
+BUILD_ARGS+=(--build-arg GO_IMAGE=${GO_IMAGE} --build-arg ALPINE_IMAGE=${ALPINE_IMAGE})
+
+docker build "${BUILD_ARGS[@]}" .
 
 echo "✅ MincodeOpenApi 应用镜像构建完成"
 

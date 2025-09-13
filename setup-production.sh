@@ -1,11 +1,11 @@
 #!/bin/bash
-# New-API 生产环境配置脚本
+# MincodeOpenApi 生产环境配置脚本
 # 生成 docker-compose 和应用启动所需的环境变量配置
 
 set -e
 
 echo "=================================================="
-echo "� New-API 生产环境配置向导"
+echo "🔧 MincodeOpenApi 生产环境配置向导"
 echo "=================================================="
 
 # 生成安全密钥的函数
@@ -34,7 +34,7 @@ read -p "🔧 镜像仓库地址 [crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.
 REGISTRY=${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}
 
 # 端口配置
-read -p "🌐 New-API 服务端口 [8999]: " NEW_API_PORT
+read -p "🌐 MincodeOpenApi 服务端口 [8999]: " NEW_API_PORT
 NEW_API_PORT=${NEW_API_PORT:-8999}
 
 read -p "🌐 MySQL 端口 [3306]: " MYSQL_PORT
@@ -63,7 +63,7 @@ echo "   INITIAL_ROOT_TOKEN: $INITIAL_ROOT_TOKEN"
 echo ""
 echo "� 生成 .env 文件..."
 cat > .env << EOF
-# ===== New-API 生产环境配置 =====
+# ===== MincodeOpenApi 生产环境配置 =====
 # 生成时间: $(date)
 
 # ===== 镜像配置 =====
@@ -91,7 +91,7 @@ SQL_DSN="root:${MYSQL_ROOT_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}"
 # ===== Redis 配置 =====
 REDIS_CONN_STRING="redis://redis:6379/0"
 
-# ===== New-API 应用配置 =====
+# ===== MincodeOpenApi 应用配置 =====
 SESSION_SECRET="${SESSION_SECRET}"
 INITIAL_ROOT_TOKEN="${INITIAL_ROOT_TOKEN}"
 ERROR_LOG_ENABLED=true
@@ -106,11 +106,11 @@ echo ""
 echo "📄 生成启动脚本..."
 cat > start.sh << 'EOF'
 #!/bin/bash
-# New-API 服务启动脚本
+# MincodeOpenApi 服务启动脚本
 
 set -e
 
-echo "🚀 启动 New-API 服务..."
+echo "🚀 启动 MincodeOpenApi 服务..."
 
 # 检查Docker是否运行
 if ! docker info > /dev/null 2>&1; then
@@ -160,9 +160,9 @@ chmod +x start.sh
 # 生成停止脚本
 cat > stop.sh << 'EOF'
 #!/bin/bash
-# New-API 服务停止脚本
+# MincodeOpenApi 服务停止脚本
 
-echo "🛑 停止 New-API 服务..."
+echo "🛑 停止 MincodeOpenApi 服务..."
 docker compose down
 
 echo "✅ 服务已停止"
@@ -181,7 +181,7 @@ echo "   - stop.sh           服务停止脚本"
 echo "   - data/             数据目录"
 echo "   - logs/             日志目录"
 echo ""
-echo "� 下一步操作:"
+echo "🔧 下一步操作:"
 echo "   1. 运行 ./start.sh 启动服务"
 echo "   2. 访问 http://localhost:${NEW_API_PORT}"
 echo "   3. 使用管理员Token登录: ${INITIAL_ROOT_TOKEN}"

@@ -1,13 +1,13 @@
-# New-API 项目部署指南
+# MincodeOpenApi 项目部署指南
 
 ## 🎯 概述
 
-本项目提供了完整的 New-API 服务构建和部署解决方案，支持从本地构建到生产环境部署的全流程。
+本项目提供了完整的 MincodeOpenApi 服务构建和部署解决方案，支持从本地构建到生产环境部署的全流程。
 
 ## 📁 项目结构
 
 ```
-new-api/
+mincode-openapi/
 ├── build-push.sh          # 本地构建和推送脚本
 ├── setup-production.sh    # 生产环境配置脚本
 ├── docker-compose.yml     # Docker Compose 配置文件
@@ -33,7 +33,7 @@ new-api/
 ```
 
 **功能说明：**
-- 构建 New-API 应用镜像（多平台支持）
+- 构建 MincodeOpenApi 应用镜像（多平台支持）
 - 推送 Redis 镜像到私有仓库
 - 推送 MySQL 镜像到私有仓库
 - 自动标记 latest 和版本号标签
@@ -90,17 +90,17 @@ docker compose ps
 docker compose logs -f
 
 # 重启特定服务
-docker compose restart new-api
+docker compose restart mincode-openapi
 ```
 
 ### 数据管理
 
 ```bash
 # 备份数据库
-docker exec mysql mysqldump -u root -p${MYSQL_ROOT_PASSWORD} new-api > backup.sql
+docker exec mysql mysqldump -u root -p${MYSQL_ROOT_PASSWORD} mincode-openapi > backup.sql
 
 # 进入应用容器
-docker exec -it new-api /bin/sh
+docker exec -it mincode-openapi /bin/sh
 
 # 查看应用日志
 tail -f logs/oneapi-*.log
@@ -171,7 +171,7 @@ docker compose pull && docker compose up -d
    docker login crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com
    
    # 手动拉取测试
-   docker pull crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3/new-api:latest
+   docker pull crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3/mincode-openapi:latest
    ```
 
 3. **数据库连接失败**

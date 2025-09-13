@@ -3,29 +3,18 @@
 </p>
 <div align="center">
 
-![new-api](/web/public/logo.png)
+![mincode-openapi](/web/public/logo.png)
 
-# New API
+# MincodeOpenApi
 
 🍥新一代大模型网关与AI资产管理系统
 
-<a href="https://trendshift.io/repositories/8227" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8227" alt="Calcium-Ion%2Fnew-api | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
 <p align="center">
-  <a href="https://raw.githubusercontent.com/Calcium-Ion/new-api/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Calcium-Ion/new-api?color=brightgreen" alt="license">
+  <a href="https://raw.githubusercontent.com/blueming333/mincode-openapi/main/LICENSE">
+    <img src="https://img.shields.io/github/license/blueming333/mincode-openapi?color=brightgreen" alt="license">
   </a>
-  <a href="https://github.com/Calcium-Ion/new-api/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Calcium-Ion/new-api?color=brightgreen&include_prereleases" alt="release">
-  </a>
-  <a href="https://github.com/users/Calcium-Ion/packages/container/package/new-api">
-    <img src="https://img.shields.io/badge/docker-ghcr.io-blue" alt="docker">
-  </a>
-  <a href="https://hub.docker.com/r/CalciumIon/new-api">
-    <img src="https://img.shields.io/badge/docker-dockerHub-blue" alt="docker">
-  </a>
-  <a href="https://goreportcard.com/report/github.com/Calcium-Ion/new-api">
-    <img src="https://goreportcard.com/badge/github.com/Calcium-Ion/new-api" alt="GoReportCard">
+  <a href="https://github.com/blueming333/mincode-openapi/releases/latest">
+    <img src="https://img.shields.io/github/v/release/blueming333/mincode-openapi?color=brightgreen&include_prereleases" alt="release">
   </a>
 </p>
 </div>
@@ -33,7 +22,7 @@
 ## 📝 项目说明
 
 > [!NOTE]  
-> 本项目为开源项目，在[One API](https://github.com/songquanpeng/one-api)的基础上进行二次开发
+> 本项目基于[New API](https://github.com/Calcium-Ion/new-api)进行定制开发，提供MincodeOpenApi品牌化的AI接口管理服务
 
 > [!IMPORTANT]  
 > - 本项目仅供个人学习使用，不保证稳定性，且不提供任何技术支持。
@@ -43,23 +32,11 @@
 <h2>🤝 我们信任的合作伙伴</h2>
 <p id="premium-sponsors">&nbsp;</p>
 <p align="center"><strong>排名不分先后</strong></p>
-<p align="center">
-  <a href="https://www.cherry-ai.com/" target=_blank><img
-    src="./docs/images/cherry-studio.png" alt="Cherry Studio" height="120"
-  /></a>
-  <a href="https://bda.pku.edu.cn/" target=_blank><img
-    src="./docs/images/pku.png" alt="北京大学" height="120"
-  /></a>
-  <a href="https://www.compshare.cn/?ytag=GPU_yy_gh_newapi" target=_blank><img
-    src="./docs/images/ucloud.png" alt="UCloud 优刻得" height="120"
-  /></a>
-  <a href="https://www.aliyun.com/" target=_blank><img
-    src="./docs/images/aliyun.png" alt="阿里云" height="120"
-  /></a>
-  <a href="https://io.net/" target=_blank><img
-    src="./docs/images/io-net.png" alt="IO.NET" height="120"
-  /></a>
-</p>
+## 📚 文档
+
+详细使用说明请参考项目文档。
+
+## ✨ 主要特性
 <p>&nbsp;</p>
 
 ## 📚 文档
@@ -71,7 +48,7 @@
 
 ## ✨ 主要特性
 
-New API提供了丰富的功能，详细特性请参考[特性说明](https://docs.newapi.pro/wiki/features-introduction)：
+MincodeOpenApi提供了丰富的功能，详细特性请参考[特性说明](https://docs.newapi.pro/wiki/features-introduction)：
 
 1. 🎨 全新的UI界面
 2. 🌍 多语言支持

@@ -3,20 +3,18 @@
 </p>
 <div align="center">
 
-![new-api](/web/public/logo.png)
+![mincode-openapi](/web/public/logo.png)
 
-# New API
+# MincodeOpenApi
 
 🍥 Next-Generation Large Model Gateway and AI Asset Management System
 
-<a href="https://trendshift.io/repositories/8227" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8227" alt="Calcium-Ion%2Fnew-api | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
 <p align="center">
-  <a href="https://raw.githubusercontent.com/Calcium-Ion/new-api/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Calcium-Ion/new-api?color=brightgreen" alt="license">
+  <a href="https://raw.githubusercontent.com/blueming333/mincode-openapi/main/LICENSE">
+    <img src="https://img.shields.io/github/license/blueming333/mincode-openapi?color=brightgreen" alt="license">
   </a>
-  <a href="https://github.com/Calcium-Ion/new-api/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Calcium-Ion/new-api?color=brightgreen&include_prereleases" alt="release">
+  <a href="https://github.com/blueming333/mincode-openapi/releases/latest">
+    <img src="https://img.shields.io/github/v/release/blueming333/mincode-openapi?color=brightgreen&include_prereleases" alt="release">
   </a>
   <a href="https://github.com/users/Calcium-Ion/packages/container/package/new-api">
     <img src="https://img.shields.io/badge/docker-ghcr.io-blue" alt="docker">

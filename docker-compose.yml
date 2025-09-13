@@ -1,7 +1,7 @@
 services:
-  new-api:
-    image: ${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}/new-api:${TAG:-latest}
-    container_name: new-api
+  mincode-openapi:
+    image: ${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}/mincode-openapi:${TAG:-latest}
+    container_name: mincode-openapi
     restart: unless-stopped
     command: --log-dir /app/logs
     ports:

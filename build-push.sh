@@ -1,5 +1,5 @@
 #!/bin/bash
-# New-API 项目镜像构建和推送脚本
+# MincodeOpenApi 项目镜像构建和推送脚本
 # 构建应用镜像、Redis镜像、MySQL镜像并推送到阿里云私有仓库
 
 set -e
@@ -13,7 +13,7 @@ VERSION=${1:-$(date +%Y%m%d%H%M%S)}
 LATEST_TAG="latest"
 
 echo "=================================================="
-echo "🚀 New-API 项目镜像构建和推送"
+echo "🚀 MincodeOpenApi 项目镜像构建和推送"
 echo "镜像仓库: ${REGISTRY}"
 echo "版本标签: ${VERSION}"
 echo "=================================================="
@@ -28,17 +28,17 @@ fi
 echo "🔐 登录阿里云镜像仓库..."
 docker login --username="${USERNAME}" "${REGISTRY%%/*}"
 
-# 1. 构建 New-API 应用镜像
+# 1. 构建 MincodeOpenApi 应用镜像
 echo ""
-echo "📦 构建 New-API 应用镜像..."
+echo "📦 构建 MincodeOpenApi 应用镜像..."
 docker build \
     --platform linux/amd64 \
-    -t "${REGISTRY}/new-api:${VERSION}" \
-    -t "${REGISTRY}/new-api:${LATEST_TAG}" \
+    -t "${REGISTRY}/mincode-openapi:${VERSION}" \
+    -t "${REGISTRY}/mincode-openapi:${LATEST_TAG}" \
     --push \
     .
 
-echo "✅ New-API 应用镜像构建完成"
+echo "✅ MincodeOpenApi 应用镜像构建完成"
 
 # 2. 推送 Redis 镜像
 echo ""
@@ -65,8 +65,8 @@ echo "=================================================="
 echo "🎉 所有镜像构建和推送完成！"
 echo ""
 echo "📋 推送的镜像："
-echo "   - ${REGISTRY}/new-api:${VERSION}"
-echo "   - ${REGISTRY}/new-api:${LATEST_TAG}"
+echo "   - ${REGISTRY}/mincode-openapi:${VERSION}"
+echo "   - ${REGISTRY}/mincode-openapi:${LATEST_TAG}"
 echo "   - ${REGISTRY}/redis:7-alpine"
 echo "   - ${REGISTRY}/redis:${LATEST_TAG}"
 echo "   - ${REGISTRY}/mysql:8.2"

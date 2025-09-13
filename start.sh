@@ -1,9 +1,9 @@
 #!/bin/bash
-# New-API 服务启动脚本
+# MincodeOpenApi 服务启动脚本
 
 set -e
 
-echo "🚀 启动 New-API 服务..."
+echo "🚀 启动 MincodeOpenApi 服务..."
 
 # 检查Docker是否运行
 if ! docker info > /dev/null 2>&1; then

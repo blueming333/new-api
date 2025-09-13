@@ -1,113 +1,188 @@
 #!/bin/bash
-# New-API 生产环境配置生成脚本
+# New-API 生产环境配置脚本
+# 生成 docker-compose 和应用启动所需的环境变量配置
 
 set -e
 
-echo "🔧 New-API 生产环境配置生成器"
-echo "================================"
+echo "=================================================="
+echo "� New-API 生产环境配置向导"
+echo "=================================================="
 
-# 检查是否已存在配置文件
-if [ -f "docker.env" ]; then
-    echo "⚠️  发现现有的 docker.env 文件"
-    read -p "是否要备份并重新生成？(y/N): " -r
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        mv docker.env docker.env.backup.$(date +%Y%m%d_%H%M%S)
-        echo "✅ 已备份现有配置文件"
-    else
-        echo "❌ 取消配置生成"
-        exit 0
-    fi
+# 生成安全密钥的函数
+generate_key() {
+    openssl rand -base64 32 | tr '/' '_' | tr '+' '-' | head -c 32
+}
+
+# 检查Docker是否运行
+if ! docker --version > /dev/null 2>&1; then
+    echo "❌ 警告: Docker 未安装或未在PATH中"
 fi
 
-# 复制模板
-if [ -f "docker.env.production" ]; then
-    cp docker.env.production docker.env
-    echo "✅ 复制生产环境模板"
-else
-    echo "❌ 找不到 docker.env.production 模板文件"
+# 创建必要的目录
+echo "📁 创建必要的目录..."
+mkdir -p data logs
+chmod 755 data logs
+
+echo ""
+echo "📝 配置生产环境参数"
+echo "如需使用默认值，直接按回车即可"
+echo ""
+
+# 镜像仓库配置
+read -p "🔧 镜像仓库地址 [crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3]: " REGISTRY
+REGISTRY=${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}
+
+# 端口配置
+read -p "🌐 New-API 服务端口 [8999]: " NEW_API_PORT
+NEW_API_PORT=${NEW_API_PORT:-8999}
+
+read -p "🌐 MySQL 端口 [3306]: " MYSQL_PORT
+MYSQL_PORT=${MYSQL_PORT:-3306}
+
+# 数据库配置
+read -p "💾 MySQL 数据库名 [new-api]: " MYSQL_DATABASE
+MYSQL_DATABASE=${MYSQL_DATABASE:-new-api}
+
+read -p "🔑 MySQL root 密码 [随机生成]: " MYSQL_ROOT_PASSWORD
+if [ -z "$MYSQL_ROOT_PASSWORD" ]; then
+    MYSQL_ROOT_PASSWORD=$(generate_key)
+    echo "   已生成 MySQL 密码: $MYSQL_ROOT_PASSWORD"
+fi
+
+# 安全配置
+echo ""
+echo "🔐 生成安全密钥..."
+SESSION_SECRET=$(generate_key)
+INITIAL_ROOT_TOKEN="sk-$(generate_key)"
+
+echo "   SESSION_SECRET: $SESSION_SECRET"
+echo "   INITIAL_ROOT_TOKEN: $INITIAL_ROOT_TOKEN"
+
+# 生成 .env 文件
+echo ""
+echo "� 生成 .env 文件..."
+cat > .env << EOF
+# ===== New-API 生产环境配置 =====
+# 生成时间: $(date)
+
+# ===== 镜像配置 =====
+REGISTRY=${REGISTRY}
+TAG=latest
+REDIS_TAG=latest
+MYSQL_TAG=latest
+
+# ===== 服务端口配置 =====
+NEW_API_PORT=${NEW_API_PORT}
+MYSQL_PORT=${MYSQL_PORT}
+
+# ===== 数据和日志目录 =====
+DATA_DIR=./data
+LOGS_DIR=./logs
+
+# ===== 时区配置 =====
+TZ=Asia/Shanghai
+
+# ===== 数据库配置 =====
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+MYSQL_DATABASE=${MYSQL_DATABASE}
+SQL_DSN=root:${MYSQL_ROOT_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}
+
+# ===== Redis 配置 =====
+REDIS_CONN_STRING=redis://redis:6379/0
+
+# ===== New-API 应用配置 =====
+SESSION_SECRET=${SESSION_SECRET}
+INITIAL_ROOT_TOKEN=${INITIAL_ROOT_TOKEN}
+ERROR_LOG_ENABLED=true
+STREAMING_TIMEOUT=300
+GENERATE_DEFAULT_TOKEN=true
+EOF
+
+echo "✅ .env 文件已生成"
+
+# 生成启动脚本
+echo ""
+echo "📄 生成启动脚本..."
+cat > start.sh << 'EOF'
+#!/bin/bash
+# New-API 服务启动脚本
+
+set -e
+
+echo "🚀 启动 New-API 服务..."
+
+# 检查Docker是否运行
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ 错误: Docker 未运行，请先启动 Docker"
     exit 1
 fi
 
-# 生成安全密钥
-echo ""
-echo "🔐 生成安全配置..."
-
-# 检查openssl是否可用
-if command -v openssl &> /dev/null; then
-    SESSION_SECRET="newapi-session-$(openssl rand -base64 32 | tr -d '\n' | tr '/' '_' | tr '+' '-')"
-    ADMIN_TOKEN="sk-$(openssl rand -hex 20)"
-else
-    # 如果没有openssl，使用date和随机数
-    SESSION_SECRET="newapi-session-$(date +%s)-$(shuf -i 1000-9999 -n 1)"
-    ADMIN_TOKEN="sk-$(date +%s)$(shuf -i 100000-999999 -n 1)"
+# 检查环境配置
+if [ ! -f .env ]; then
+    echo "❌ 错误: .env 文件不存在，请先运行 setup-production.sh"
+    exit 1
 fi
 
-# 更新配置文件 - 使用不同的分隔符避免特殊字符冲突
-sed -i "s|SESSION_SECRET=your-production-session-secret-key-change-this|SESSION_SECRET=${SESSION_SECRET}|" docker.env
-sed -i "s|INITIAL_ROOT_TOKEN=sk-your-initial-admin-token-change-this|INITIAL_ROOT_TOKEN=${ADMIN_TOKEN}|" docker.env
+# 加载环境变量
+source .env
 
-echo "✅ 已生成安全密钥"
+# 登录阿里云镜像仓库
+echo "🔐 登录阿里云镜像仓库..."
+docker login --username="铅笔头科技" "${REGISTRY%%/*}"
 
-# 显示生成的配置
-echo ""
-echo "📋 生成的安全配置:"
-echo "SESSION_SECRET: ${SESSION_SECRET}"
-echo "INITIAL_ROOT_TOKEN: ${ADMIN_TOKEN}"
+# 拉取最新镜像
+echo "📦 拉取最新镜像..."
+docker compose pull
 
-# 获取用户输入的可选配置
-echo ""
-echo "🔧 可选配置（按回车使用默认值）:"
+# 启动服务
+echo "🚀 启动服务..."
+docker compose up -d
 
-# 询问镜像版本
-read -p "镜像版本 (默认: latest): " VERSION
-if [ -n "$VERSION" ]; then
-    sed -i "s|TAG=latest|TAG=${VERSION}|" docker.env
-    echo "✅ 设置镜像版本: $VERSION"
-fi
-
-# 询问端口
-read -p "服务端口 (默认: 8999): " PORT
-if [ -n "$PORT" ]; then
-    sed -i "s|NEW_API_PORT=8999|NEW_API_PORT=${PORT}|" docker.env
-    echo "✅ 设置服务端口: $PORT"
-fi
-
-# 询问是否修改数据库密码
-echo ""
-read -p "是否要修改数据库密码？当前: man@2025 (y/N): " -r
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    read -s -p "请输入新的MySQL密码: " NEW_DB_PASSWORD
-    echo ""
-    if [ -n "$NEW_DB_PASSWORD" ]; then
-        # 转义特殊字符并更新配置文件中的密码
-        ESCAPED_OLD_PASSWORD="man@2025"
-        ESCAPED_NEW_PASSWORD=$(echo "$NEW_DB_PASSWORD" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        sed -i "s|${ESCAPED_OLD_PASSWORD}|${NEW_DB_PASSWORD}|g" docker.env
-        echo "✅ 已更新数据库密码"
-        echo ""
-        echo "⚠️  重要提醒："
-        echo "   请同时修改 docker-compose.yml 中的 MYSQL_ROOT_PASSWORD"
-        echo "   修改命令："
-        echo "   sed -i 's|MYSQL_ROOT_PASSWORD: 123456|MYSQL_ROOT_PASSWORD: ${NEW_DB_PASSWORD}|' docker-compose.yml"
-    fi
-fi
-
-# 显示最终配置
-echo ""
-echo "📄 最终配置文件预览:"
-echo "===================="
-cat docker.env | grep -E "(DOCKER_REGISTRY|TAG|NEW_API_PORT|SESSION_SECRET|INITIAL_ROOT_TOKEN|MYSQL_ROOT_PASSWORD)" | head -6
+# 检查服务状态
+echo "📊 检查服务状态..."
+sleep 5
+docker compose ps
 
 echo ""
-echo "✅ 配置文件生成完成: docker.env"
+echo "✅ 服务启动完成！"
+echo "🌐 访问地址: http://localhost:${NEW_API_PORT}"
+echo "🔑 管理员Token: ${INITIAL_ROOT_TOKEN}"
 echo ""
-echo "📋 下一步操作:"
-echo "1. 检查并编辑 docker.env 配置文件"
-echo "2. 登录阿里云镜像仓库: docker login crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com"
-echo "3. 部署服务: ./deploy.sh"
-echo "4. 验证部署: ./manage.sh status"
+echo "📋 常用命令:"
+echo "   查看日志: docker compose logs -f"
+echo "   停止服务: docker compose down"
+echo "   重启服务: docker compose restart"
+EOF
+
+chmod +x start.sh
+
+# 生成停止脚本
+cat > stop.sh << 'EOF'
+#!/bin/bash
+# New-API 服务停止脚本
+
+echo "🛑 停止 New-API 服务..."
+docker compose down
+
+echo "✅ 服务已停止"
+EOF
+
+chmod +x stop.sh
+
 echo ""
-echo "🔐 重要提醒:"
-echo "- 请妥善保存生成的密钥信息"
-echo "- 首次登录管理面板使用 INITIAL_ROOT_TOKEN"
-echo "- 部署后请及时修改管理员密码"
+echo "=================================================="
+echo "🎉 生产环境配置完成！"
+echo ""
+echo "📋 生成的文件:"
+echo "   - .env              环境变量配置文件"
+echo "   - start.sh          服务启动脚本"
+echo "   - stop.sh           服务停止脚本"
+echo "   - data/             数据目录"
+echo "   - logs/             日志目录"
+echo ""
+echo "� 下一步操作:"
+echo "   1. 运行 ./start.sh 启动服务"
+echo "   2. 访问 http://localhost:${NEW_API_PORT}"
+echo "   3. 使用管理员Token登录: ${INITIAL_ROOT_TOKEN}"
+echo ""
+echo "=================================================="

@@ -1,27 +1,25 @@
-version: '3.4'
+version: '3.8'
 
 services:
   new-api:
-    image: calciumion/new-api:latest
+    image: ${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}/new-api:${TAG:-latest}
     container_name: new-api
-    restart: always
+    restart: unless-stopped
     command: --log-dir /app/logs
     ports:
-      - "8999:3000"
+      - "${NEW_API_PORT:-8999}:3000"
     volumes:
-      - ./data:/data
-      - ./logs:/app/logs
+      - ${DATA_DIR:-./data}:/data
+      - ${LOGS_DIR:-./logs}:/app/logs
     environment:
-      - SQL_DSN=root:man@2025@tcp(mysql:3306)/new-api  # Point to the mysql service
-      - REDIS_CONN_STRING=redis://redis
-      - TZ=Asia/Shanghai
-      - ERROR_LOG_ENABLED=true # 是否启用错误日志记录
-    #      - STREAMING_TIMEOUT=300  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值
-    #      - SESSION_SECRET=random_string  # 多机部署时设置，必须修改这个随机字符串！！！！！！！
-    #      - NODE_TYPE=slave  # Uncomment for slave node in multi-node deployment
-    #      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
-    #      - FRONTEND_BASE_URL=https://openai.justsong.cn  # Uncomment for multi-node deployment with front-end URL
-
+      - SQL_DSN=${SQL_DSN}
+      - REDIS_CONN_STRING=${REDIS_CONN_STRING}
+      - TZ=${TZ:-Asia/Shanghai}
+      - ERROR_LOG_ENABLED=${ERROR_LOG_ENABLED:-true}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - INITIAL_ROOT_TOKEN=${INITIAL_ROOT_TOKEN}
+      - STREAMING_TIMEOUT=${STREAMING_TIMEOUT:-300}
+      - GENERATE_DEFAULT_TOKEN=${GENERATE_DEFAULT_TOKEN:-true}
     depends_on:
       - redis
       - mysql
@@ -32,21 +30,23 @@ services:
       retries: 3
 
   redis:
-    image: redis:latest
+    image: ${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}/redis:${REDIS_TAG:-latest}
     container_name: redis
-    restart: always
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
 
   mysql:
-    image: mysql:8.2
+    image: ${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}/mysql:${MYSQL_TAG:-latest}
     container_name: mysql
-    restart: always
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: 123456  # Ensure this matches the password in SQL_DSN
-      MYSQL_DATABASE: new-api
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-new-api}
     volumes:
       - mysql_data:/var/lib/mysql
-    # ports:
-    #   - "3306:3306"  # If you want to access MySQL from outside Docker, uncomment
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
 
 volumes:
   mysql_data:

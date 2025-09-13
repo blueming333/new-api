@@ -32,7 +32,7 @@ docker login --username="${USERNAME}" "${REGISTRY%%/*}"
 echo ""
 echo "📦 构建 New-API 应用镜像..."
 docker build \
-    --platform linux/amd64,linux/arm64 \
+    --platform linux/amd64 \
     -t "${REGISTRY}/new-api:${VERSION}" \
     -t "${REGISTRY}/new-api:${LATEST_TAG}" \
     --push \

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   new-api:
     image: ${REGISTRY:-crpi-appxm8pdgvw49jw2.cn-hangzhou.personal.cr.aliyuncs.com/blueming3}/new-api:${TAG:-latest}
@@ -50,3 +48,4 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
